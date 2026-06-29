@@ -1,138 +1,678 @@
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { MetaFunction } from "@remix-run/cloudflare";
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "New Remix App" },
-    { name: "description", content: "Welcome to Remix!" },
-  ];
+export const meta: MetaFunction = () => [
+  { title: "ITI Vessels Service Workbook" },
+  { name: "description", content: "Vessel crane service report tracker" },
+];
+
+type ServiceType = "CA" | "ER" | "Timesheet";
+type QuotationStatus = "Pending" | "Approved" | "Rejected" | "N/A";
+type CraneStatus = "Operational" | "Under Repair" | "Standby" | "Breakdown";
+
+interface ServiceRecord {
+  id: string;
+  vesselName: string;
+  craneStatus: CraneStatus;
+  serviceType: ServiceType;
+  dateOfAttendance: string;
+  engineer: string;
+  serviceReportLink: string;
+  quotationApproval: QuotationStatus;
+  vendor: string;
+  remarks: string;
+}
+
+const EMPTY_RECORD: Omit<ServiceRecord, "id"> = {
+  vesselName: "",
+  craneStatus: "Operational",
+  serviceType: "CA",
+  dateOfAttendance: "",
+  engineer: "",
+  serviceReportLink: "",
+  quotationApproval: "N/A",
+  vendor: "",
+  remarks: "",
 };
 
-export default function Index() {
+const STORAGE_KEY = "iti-vessels-workbook-v1";
+
+const SAMPLE_DATA: ServiceRecord[] = [
+  {
+    id: "1",
+    vesselName: "MV Berlian 1",
+    craneStatus: "Under Repair",
+    serviceType: "ER",
+    dateOfAttendance: "2025-06-10",
+    engineer: "Ahmad Razif",
+    serviceReportLink: "https://drive.google.com/file/d/sample1",
+    quotationApproval: "Approved",
+    vendor: "Cipta Hoses",
+    remarks: "Hydraulic hose burst on crane #2",
+  },
+  {
+    id: "2",
+    vesselName: "MV Berlian 1",
+    craneStatus: "Operational",
+    serviceType: "CA",
+    dateOfAttendance: "2025-06-15",
+    engineer: "Faizal Hamdan",
+    serviceReportLink: "https://drive.google.com/file/d/sample2",
+    quotationApproval: "Approved",
+    vendor: "",
+    remarks: "Scheduled PM – wire rope lubrication",
+  },
+  {
+    id: "3",
+    vesselName: "MV Kencana",
+    craneStatus: "Standby",
+    serviceType: "Timesheet",
+    dateOfAttendance: "2025-06-18",
+    engineer: "Ahmad Razif",
+    serviceReportLink: "https://drive.google.com/file/d/sample3",
+    quotationApproval: "N/A",
+    vendor: "",
+    remarks: "Standby duty during cargo ops",
+  },
+  {
+    id: "4",
+    vesselName: "MV Suria",
+    craneStatus: "Breakdown",
+    serviceType: "ER",
+    dateOfAttendance: "2025-06-20",
+    engineer: "Hairul Nizam",
+    serviceReportLink: "https://drive.google.com/file/d/sample4",
+    quotationApproval: "Pending",
+    vendor: "Cipta Hoses",
+    remarks: "Slewing motor failure – awaiting parts",
+  },
+  {
+    id: "5",
+    vesselName: "MV Kencana",
+    craneStatus: "Operational",
+    serviceType: "CA",
+    dateOfAttendance: "2025-06-22",
+    engineer: "Faizal Hamdan",
+    serviceReportLink: "https://drive.google.com/file/d/sample5",
+    quotationApproval: "Approved",
+    vendor: "",
+    remarks: "Annual safety inspection",
+  },
+];
+
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+const SERVICE_BADGE: Record<ServiceType, string> = {
+  CA: "bg-blue-100 text-blue-800 border border-blue-200",
+  ER: "bg-red-100 text-red-800 border border-red-200",
+  Timesheet: "bg-green-100 text-green-800 border border-green-200",
+};
+
+const CRANE_BADGE: Record<CraneStatus, string> = {
+  Operational: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  Standby: "bg-yellow-100 text-yellow-800 border border-yellow-200",
+  "Under Repair": "bg-orange-100 text-orange-800 border border-orange-200",
+  Breakdown: "bg-red-100 text-red-800 border border-red-200",
+};
+
+const QUOTATION_BADGE: Record<QuotationStatus, string> = {
+  Approved: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  Pending: "bg-amber-100 text-amber-800 border border-amber-200",
+  Rejected: "bg-red-100 text-red-800 border border-red-200",
+  "N/A": "bg-gray-100 text-gray-500 border border-gray-200",
+};
+
+function Badge({ label, className }: { label: string; className: string }) {
   return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-16">
-        <header className="flex flex-col items-center gap-9">
-          <h1 className="leading text-2xl font-bold text-gray-800 dark:text-gray-100">
-            Welcome to <span className="sr-only">Remix</span>
-          </h1>
-          <div className="h-[144px] w-[434px]">
-            <img
-              src="/logo-light.png"
-              alt="Remix"
-              className="block w-full dark:hidden"
-            />
-            <img
-              src="/logo-dark.png"
-              alt="Remix"
-              className="hidden w-full dark:block"
+    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+interface ModalProps {
+  record: Omit<ServiceRecord, "id"> | ServiceRecord;
+  onClose: () => void;
+  onSave: (r: Omit<ServiceRecord, "id"> | ServiceRecord) => void;
+  isEdit: boolean;
+}
+
+function RecordModal({ record, onClose, onSave, isEdit }: ModalProps) {
+  const [form, setForm] = useState(record);
+  const firstRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    firstRef.current?.focus();
+  }, []);
+
+  function set<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-gray-100 px-6 py-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {isEdit ? "Edit Record" : "Add New Record"}
+          </h2>
+        </div>
+        <div className="grid grid-cols-2 gap-4 px-6 py-5">
+          <div className="col-span-2">
+            <label className="label">Vessel Name</label>
+            <input
+              ref={firstRef}
+              className="input"
+              value={form.vesselName}
+              onChange={(e) => set("vesselName", e.target.value)}
+              placeholder="e.g. MV Berlian 1"
             />
           </div>
-        </header>
-        <nav className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-gray-200 p-6 dark:border-gray-700">
-          <p className="leading-6 text-gray-700 dark:text-gray-200">
-            What&apos;s next?
-          </p>
-          <ul>
-            {resources.map(({ href, text, icon }) => (
-              <li key={href}>
-                <a
-                  className="group flex items-center gap-3 self-stretch p-3 leading-normal text-blue-700 hover:underline dark:text-blue-500"
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {icon}
-                  {text}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+          <div>
+            <label className="label">Date of Attendance</label>
+            <input
+              type="date"
+              className="input"
+              value={form.dateOfAttendance}
+              onChange={(e) => set("dateOfAttendance", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Engineer</label>
+            <input
+              className="input"
+              value={form.engineer}
+              onChange={(e) => set("engineer", e.target.value)}
+              placeholder="Engineer name"
+            />
+          </div>
+          <div>
+            <label className="label">Service Type</label>
+            <select
+              className="input"
+              value={form.serviceType}
+              onChange={(e) => set("serviceType", e.target.value as ServiceType)}
+            >
+              <option>CA</option>
+              <option>ER</option>
+              <option>Timesheet</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Crane Status</label>
+            <select
+              className="input"
+              value={form.craneStatus}
+              onChange={(e) => set("craneStatus", e.target.value as CraneStatus)}
+            >
+              <option>Operational</option>
+              <option>Standby</option>
+              <option>Under Repair</option>
+              <option>Breakdown</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Quotation Approval</label>
+            <select
+              className="input"
+              value={form.quotationApproval}
+              onChange={(e) => set("quotationApproval", e.target.value as QuotationStatus)}
+            >
+              <option>N/A</option>
+              <option>Pending</option>
+              <option>Approved</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Vendor</label>
+            <input
+              className="input"
+              value={form.vendor}
+              onChange={(e) => set("vendor", e.target.value)}
+              placeholder="e.g. Cipta Hoses"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Service Report Link (Google Drive)</label>
+            <input
+              className="input"
+              value={form.serviceReportLink}
+              onChange={(e) => set("serviceReportLink", e.target.value)}
+              placeholder="https://drive.google.com/..."
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Remarks</label>
+            <textarea
+              className="input resize-none"
+              rows={2}
+              value={form.remarks}
+              onChange={(e) => set("remarks", e.target.value)}
+              placeholder="Additional notes"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <button onClick={onClose} className="btn-ghost">Cancel</button>
+          <button
+            onClick={() => onSave(form)}
+            disabled={!form.vesselName || !form.dateOfAttendance || !form.engineer}
+            className="btn-primary"
+          >
+            {isEdit ? "Save Changes" : "Add Record"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-const resources = [
-  {
-    href: "https://remix.run/start/quickstart",
-    text: "Quick Start (5 min)",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
+type SortKey = keyof ServiceRecord;
+
+export default function Index() {
+  const [records, setRecords] = useState<ServiceRecord[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const [filterVessel, setFilterVessel] = useState("");
+  const [filterType, setFilterType] = useState<ServiceType | "All">("All");
+  const [filterEngineer, setFilterEngineer] = useState("");
+  const [filterQuotation, setFilterQuotation] = useState<QuotationStatus | "All">("All");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+
+  const [sortKey, setSortKey] = useState<SortKey>("dateOfAttendance");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const [modal, setModal] = useState<{ open: boolean; record: ServiceRecord | null }>({
+    open: false,
+    record: null,
+  });
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      setRecords(raw ? JSON.parse(raw) : SAMPLE_DATA);
+    } catch {
+      setRecords(SAMPLE_DATA);
+    }
+    setLoaded(true);
+  }, []);
+
+  // Persist to localStorage
+  useEffect(() => {
+    if (!loaded) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  }, [records, loaded]);
+
+  function addRecord(form: Omit<ServiceRecord, "id">) {
+    setRecords((prev) => [{ ...form, id: uid() }, ...prev]);
+    setModal({ open: false, record: null });
+  }
+
+  function updateRecord(form: ServiceRecord) {
+    setRecords((prev) => prev.map((r) => (r.id === form.id ? form : r)));
+    setModal({ open: false, record: null });
+  }
+
+  function deleteRecord(id: string) {
+    if (!confirm("Delete this record?")) return;
+    setRecords((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const vessels = useMemo(
+    () => Array.from(new Set(records.map((r) => r.vesselName))).sort(),
+    [records]
+  );
+  const engineers = useMemo(
+    () => Array.from(new Set(records.map((r) => r.engineer))).sort(),
+    [records]
+  );
+
+  const filtered = useMemo(() => {
+    return records
+      .filter((r) => {
+        if (filterVessel && r.vesselName !== filterVessel) return false;
+        if (filterType !== "All" && r.serviceType !== filterType) return false;
+        if (filterEngineer && r.engineer !== filterEngineer) return false;
+        if (filterQuotation !== "All" && r.quotationApproval !== filterQuotation) return false;
+        if (filterFrom && r.dateOfAttendance < filterFrom) return false;
+        if (filterTo && r.dateOfAttendance > filterTo) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const av = a[sortKey] ?? "";
+        const bv = b[sortKey] ?? "";
+        const cmp = String(av).localeCompare(String(bv));
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }, [records, filterVessel, filterType, filterEngineer, filterQuotation, filterFrom, filterTo, sortKey, sortDir]);
+
+  const stats = useMemo(() => {
+    const ca = records.filter((r) => r.serviceType === "CA").length;
+    const er = records.filter((r) => r.serviceType === "ER").length;
+    const ts = records.filter((r) => r.serviceType === "Timesheet").length;
+    const pending = records.filter((r) => r.quotationApproval === "Pending").length;
+    const breakdown = records.filter((r) => r.craneStatus === "Breakdown").length;
+    return { ca, er, ts, pending, breakdown };
+  }, [records]);
+
+  function exportCSV() {
+    const headers = [
+      "Vessel Name","Crane Status","Service Type","Date of Attendance",
+      "Engineer","Service Report Link","Quotation Approval","Vendor","Remarks",
+    ];
+    const rows = filtered.map((r) =>
+      [
+        r.vesselName, r.craneStatus, r.serviceType, r.dateOfAttendance,
+        r.engineer, r.serviceReportLink, r.quotationApproval, r.vendor, r.remarks,
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")
+    );
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "iti-vessels-workbook.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
+    return <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  function Th({ col, label }: { col: SortKey; label: string }) {
+    return (
+      <th
+        className="cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-900"
+        onClick={() => handleSort(col)}
       >
-        <path
-          d="M8.51851 12.0741L7.92592 18L15.6296 9.7037L11.4815 7.33333L12.0741 2L4.37036 10.2963L8.51851 12.0741Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://remix.run/start/tutorial",
-    text: "Tutorial (30 min)",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M4.561 12.749L3.15503 14.1549M3.00811 8.99944H1.01978M3.15503 3.84489L4.561 5.2508M8.3107 1.70923L8.3107 3.69749M13.4655 3.84489L12.0595 5.2508M18.1868 17.0974L16.635 18.6491C16.4636 18.8205 16.1858 18.8205 16.0144 18.6491L13.568 16.2028C13.383 16.0178 13.0784 16.0347 12.915 16.239L11.2697 18.2956C11.047 18.5739 10.6029 18.4847 10.505 18.142L7.85215 8.85711C7.75756 8.52603 8.06365 8.21994 8.39472 8.31453L17.6796 10.9673C18.0223 11.0653 18.1115 11.5094 17.8332 11.7321L15.7766 13.3773C15.5723 13.5408 15.5554 13.8454 15.7404 14.0304L18.1868 16.4767C18.3582 16.6481 18.3582 16.926 18.1868 17.0974Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://remix.run/docs",
-    text: "Remix Docs",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M9.99981 10.0751V9.99992M17.4688 17.4688C15.889 19.0485 11.2645 16.9853 7.13958 12.8604C3.01467 8.73546 0.951405 4.11091 2.53116 2.53116C4.11091 0.951405 8.73546 3.01467 12.8604 7.13958C16.9853 11.2645 19.0485 15.889 17.4688 17.4688ZM2.53132 17.4688C0.951566 15.8891 3.01483 11.2645 7.13974 7.13963C11.2647 3.01471 15.8892 0.951453 17.469 2.53121C19.0487 4.11096 16.9854 8.73551 12.8605 12.8604C8.73562 16.9853 4.11107 19.0486 2.53132 17.4688Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://rmx.as/discord",
-    text: "Join Discord",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 24 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M15.0686 1.25995L14.5477 1.17423L14.2913 1.63578C14.1754 1.84439 14.0545 2.08275 13.9422 2.31963C12.6461 2.16488 11.3406 2.16505 10.0445 2.32014C9.92822 2.08178 9.80478 1.84975 9.67412 1.62413L9.41449 1.17584L8.90333 1.25995C7.33547 1.51794 5.80717 1.99419 4.37748 2.66939L4.19 2.75793L4.07461 2.93019C1.23864 7.16437 0.46302 11.3053 0.838165 15.3924L0.868838 15.7266L1.13844 15.9264C2.81818 17.1714 4.68053 18.1233 6.68582 18.719L7.18892 18.8684L7.50166 18.4469C7.96179 17.8268 8.36504 17.1824 8.709 16.4944L8.71099 16.4904C10.8645 17.0471 13.128 17.0485 15.2821 16.4947C15.6261 17.1826 16.0293 17.8269 16.4892 18.4469L16.805 18.8725L17.3116 18.717C19.3056 18.105 21.1876 17.1751 22.8559 15.9238L23.1224 15.724L23.1528 15.3923C23.5873 10.6524 22.3579 6.53306 19.8947 2.90714L19.7759 2.73227L19.5833 2.64518C18.1437 1.99439 16.6386 1.51826 15.0686 1.25995ZM16.6074 10.7755L16.6074 10.7756C16.5934 11.6409 16.0212 12.1444 15.4783 12.1444C14.9297 12.1444 14.3493 11.6173 14.3493 10.7877C14.3493 9.94885 14.9378 9.41192 15.4783 9.41192C16.0471 9.41192 16.6209 9.93851 16.6074 10.7755ZM8.49373 12.1444C7.94513 12.1444 7.36471 11.6173 7.36471 10.7877C7.36471 9.94885 7.95323 9.41192 8.49373 9.41192C9.06038 9.41192 9.63892 9.93712 9.6417 10.7815C9.62517 11.6239 9.05462 12.1444 8.49373 12.1444Z"
-          strokeWidth="1.5"
-        />
-      </svg>
-    ),
-  },
-];
+        {label}
+        <SortIcon col={col} />
+      </th>
+    );
+  }
+
+  if (!loaded) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-400">
+        Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans">
+      {/* Header */}
+      <header className="border-b border-gray-200 bg-white px-6 py-5 shadow-sm">
+        <div className="mx-auto max-w-screen-2xl flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">ITI Vessels Service Workbook</h1>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Crane service report tracker — CA · ER · Timesheet
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={exportCSV} className="btn-ghost text-sm">
+              Export CSV
+            </button>
+            <button
+              onClick={() => setModal({ open: true, record: null })}
+              className="btn-primary text-sm"
+            >
+              + Add Record
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-screen-2xl px-6 py-6">
+        {/* Stats */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <StatCard label="Corrective Action" value={stats.ca} color="blue" />
+          <StatCard label="Emergency Repair" value={stats.er} color="red" />
+          <StatCard label="Timesheets" value={stats.ts} color="green" />
+          <StatCard label="Pending Quotations" value={stats.pending} color="amber" />
+          <StatCard label="Crane Breakdowns" value={stats.breakdown} color="orange" />
+        </div>
+
+        {/* Filters */}
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap gap-3">
+            <select
+              className="filter-select"
+              value={filterVessel}
+              onChange={(e) => setFilterVessel(e.target.value)}
+            >
+              <option value="">All Vessels</option>
+              {vessels.map((v) => <option key={v}>{v}</option>)}
+            </select>
+            <select
+              className="filter-select"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as ServiceType | "All")}
+            >
+              <option value="All">All Types</option>
+              <option>CA</option>
+              <option>ER</option>
+              <option>Timesheet</option>
+            </select>
+            <select
+              className="filter-select"
+              value={filterEngineer}
+              onChange={(e) => setFilterEngineer(e.target.value)}
+            >
+              <option value="">All Engineers</option>
+              {engineers.map((e) => <option key={e}>{e}</option>)}
+            </select>
+            <select
+              className="filter-select"
+              value={filterQuotation}
+              onChange={(e) => setFilterQuotation(e.target.value as QuotationStatus | "All")}
+            >
+              <option value="All">All Quotations</option>
+              <option>Pending</option>
+              <option>Approved</option>
+              <option>Rejected</option>
+              <option>N/A</option>
+            </select>
+            <input
+              type="date"
+              className="filter-select"
+              value={filterFrom}
+              onChange={(e) => setFilterFrom(e.target.value)}
+              title="From date"
+            />
+            <input
+              type="date"
+              className="filter-select"
+              value={filterTo}
+              onChange={(e) => setFilterTo(e.target.value)}
+              title="To date"
+            />
+            {(filterVessel || filterType !== "All" || filterEngineer || filterQuotation !== "All" || filterFrom || filterTo) && (
+              <button
+                className="text-sm text-blue-600 hover:underline"
+                onClick={() => {
+                  setFilterVessel("");
+                  setFilterType("All");
+                  setFilterEngineer("");
+                  setFilterQuotation("All");
+                  setFilterFrom("");
+                  setFilterTo("");
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            Showing {filtered.length} of {records.length} records
+          </p>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <table className="w-full min-w-[1000px] text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50">
+              <tr>
+                <Th col="dateOfAttendance" label="Date" />
+                <Th col="vesselName" label="Vessel" />
+                <Th col="craneStatus" label="Crane Status" />
+                <Th col="serviceType" label="Type" />
+                <Th col="engineer" label="Engineer" />
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Service Report
+                </th>
+                <Th col="quotationApproval" label="Quotation" />
+                <Th col="vendor" label="Vendor" />
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Remarks
+                </th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="py-16 text-center text-gray-400">
+                    No records found. Try adjusting filters or add a new record.
+                  </td>
+                </tr>
+              )}
+              {filtered.map((r) => (
+                <tr key={r.id} className="hover:bg-gray-50/70 transition-colors">
+                  <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-600">
+                    {r.dateOfAttendance}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
+                    {r.vesselName}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge label={r.craneStatus} className={CRANE_BADGE[r.craneStatus]} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge label={r.serviceType} className={SERVICE_BADGE[r.serviceType]} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-gray-700">{r.engineer}</td>
+                  <td className="px-4 py-3">
+                    {r.serviceReportLink ? (
+                      <a
+                        href={r.serviceReportLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                        View
+                      </a>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge label={r.quotationApproval} className={QUOTATION_BADGE[r.quotationApproval]} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                    {r.vendor || <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="max-w-[200px] px-4 py-3 text-gray-500 truncate" title={r.remarks}>
+                    {r.remarks || <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setModal({ open: true, record: r })}
+                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                        title="Edit"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => deleteRecord(r.id)}
+                        className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                        title="Delete"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      {/* Modal */}
+      {modal.open && (
+        modal.record ? (
+          <RecordModal
+            record={modal.record}
+            isEdit
+            onClose={() => setModal({ open: false, record: null })}
+            onSave={(form) => updateRecord(form as ServiceRecord)}
+          />
+        ) : (
+          <RecordModal
+            record={EMPTY_RECORD}
+            isEdit={false}
+            onClose={() => setModal({ open: false, record: null })}
+            onSave={(form) => addRecord(form as Omit<ServiceRecord, "id">)}
+          />
+        )
+      )}
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: "blue" | "red" | "green" | "amber" | "orange";
+}) {
+  const colors = {
+    blue: "bg-blue-50 border-blue-100 text-blue-700",
+    red: "bg-red-50 border-red-100 text-red-700",
+    green: "bg-emerald-50 border-emerald-100 text-emerald-700",
+    amber: "bg-amber-50 border-amber-100 text-amber-700",
+    orange: "bg-orange-50 border-orange-100 text-orange-700",
+  };
+  const numColors = {
+    blue: "text-blue-800",
+    red: "text-red-800",
+    green: "text-emerald-800",
+    amber: "text-amber-800",
+    orange: "text-orange-800",
+  };
+  return (
+    <div className={`rounded-xl border p-4 ${colors[color]}`}>
+      <p className={`text-3xl font-bold ${numColors[color]}`}>{value}</p>
+      <p className="mt-1 text-xs font-medium opacity-80">{label}</p>
+    </div>
+  );
+}
