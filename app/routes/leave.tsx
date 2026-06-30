@@ -87,14 +87,11 @@ export default function LeaveSummary() {
             <p>
               As the available Annual Leave balance was insufficient to cover all approved
               absences, a total of <strong>3 days</strong> have been classified as{" "}
-              <strong>Unpaid Leave (UPL)</strong> and deducted accordingly from the
-              June 2026 salary in compliance with company leave policy.
+              <strong>Unpaid Leave (UPL)</strong> and deducted from the June 2026 salary.
             </p>
             <p>
               The <strong>-2.00 days</strong> negative Annual Leave balance represents
-              advance leave that will be offset against future accruals. No further
-              Unpaid Leave deductions will apply unless the advance balance remains
-              unrecovered and additional absences occur without sufficient entitlement.
+              advance leave that will be offset against future accruals.
             </p>
           </div>
 
@@ -113,6 +110,40 @@ export default function LeaveSummary() {
                 <span className="font-semibold text-red-600">-2.00 days</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Employee Dispute */}
+        <div className="rounded-xl border border-amber-300 bg-amber-50 shadow-sm">
+          <div className="border-b border-amber-200 px-6 py-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+              Employee Dispute
+            </h2>
+          </div>
+          <div className="px-6 py-5 text-sm text-gray-700 leading-relaxed space-y-3">
+            <p>
+              The employee <strong>was not informed</strong> prior to or at the time of the
+              deductions being applied. No notification, written advisory, or approval was
+              sought from the employee before the <strong>3 days Unpaid Leave (UPL)</strong>{" "}
+              and the <strong>-2.00 days</strong> negative Annual Leave balance were processed
+              against the June 2026 payroll.
+            </p>
+            <p>
+              The employee disputes these deductions on the grounds that:
+            </p>
+            <ul className="list-disc pl-5 space-y-1 text-gray-700">
+              <li>No prior communication was received regarding insufficient leave balance.</li>
+              <li>No consent was given for Unpaid Leave classification.</li>
+              <li>The deductions were discovered only upon review of the payslip.</li>
+            </ul>
+            <p>
+              The employee requests a formal review and reimbursement of the salary deducted
+              for the 3 days UPL, or a written explanation with supporting leave records
+              justifying the deductions.
+            </p>
+          </div>
+          <div className="border-t border-amber-200 bg-amber-100 px-6 py-3 text-xs text-amber-700">
+            Raised by employee — June 2026. Pending HR review.
           </div>
         </div>
       </div>
