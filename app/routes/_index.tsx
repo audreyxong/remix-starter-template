@@ -1,9 +1,10 @@
 import type { MetaFunction } from "@remix-run/cloudflare";
+import { Link } from "@remix-run/react";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "New Remix App" },
-    { name: "description", content: "Welcome to Remix!" },
+    { title: "HR Portal" },
+    { name: "description", content: "HR Leave Management Portal" },
   ];
 };
 
@@ -13,8 +14,14 @@ export default function Index() {
       <div className="flex flex-col items-center gap-16">
         <header className="flex flex-col items-center gap-9">
           <h1 className="leading text-2xl font-bold text-gray-800 dark:text-gray-100">
-            Welcome to <span className="sr-only">Remix</span>
+            HR Portal
           </h1>
+          <Link
+            to="/leave"
+            className="rounded-lg bg-blue-600 px-6 py-3 text-white font-semibold hover:bg-blue-700 transition-colors"
+          >
+            View June Leave Summary
+          </Link>
           <div className="h-[144px] w-[434px]">
             <img
               src="/logo-light.png"
