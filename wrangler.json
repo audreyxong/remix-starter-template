@@ -8,5 +8,8 @@
   "observability": {
     "enabled": true
   },
-  "upload_source_maps": true
+  "upload_source_maps": true,
+  "vars": {
+    "BASE44_APP_ID": "69e690c443d5ffec78d618c5"
+  }
 }
